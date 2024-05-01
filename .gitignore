@@ -1,2 +1,6 @@
 visualization/.ipynb_checkpoints
-visualization/env
+visualization/venv
+do_not_upload.sh
+visualization/myImagePDF.pdf
+visualization/account.json
+visualization/data/2023-binanceTransactionHistory.csv
