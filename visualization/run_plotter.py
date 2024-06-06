@@ -1,19 +1,23 @@
 from dash import Dash, dcc, html, callback, Input, Output
+from dash import callback_context, no_update
 from dash import dash_table
 import dash_bootstrap_components as dbc
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
+import glob
 
-app = Dash(external_stylesheets=[dbc.themes.SLATE])
+app = Dash(external_stylesheets=[dbc.themes.SLATE], prevent_initial_callbacks="initial_duplicate")
 
 sourceData = []
-dataFrame = pd.DataFrame()
+dataFrames = []
+dataFrameIndex = 0
+
 
 # table view
 tableViewConfig = {
-    'visibleRows' : 20
+    'visibleRows' : 25
 }
 
 def drawFigure(tableData):
@@ -28,7 +32,7 @@ def drawFigure(tableData):
                         # color="fps",
                         # text = "fps",
                         markers = True,
-                        labels = {'sec.':'time', 'gpu' : 'GPU freq.' },
+                        labels = {'seconds':'time', 'gpu' : 'GPU freq.' },
                         hover_data="gpu",
                     ).update_layout(
                         template='plotly_dark',
@@ -53,6 +57,7 @@ def drawFigure(tableData):
     ])
 
 def drawTable(tableData):
+    DrawingTable=True
     return dash_table.DataTable(
             id='data-table',
             data=tableData.to_dict("records"),
@@ -69,14 +74,19 @@ def drawTable(tableData):
             row_deletable=True,
             selected_columns=[],
             selected_rows=[],
-            page_action="native",
+            fixed_rows={'headers': True},
+            virtualization=True,
+            page_action="none",
             page_current= 0,
-            page_size= tableViewConfig["visibleRows"],
+            page_size=tableViewConfig["visibleRows"],
             export_columns='visible',
             export_format='csv',
             style_table={
-                'minHeight': '70vh', 'height': '70vh', 'maxHeight': '70vh',
+                'minHeight': '70vh',
+                'maxHeight': '80%',
+                'height': '100%', 
                 'minWidth': '100%',
+                'overflowY': 'auto',
             },
             style_cell={
                 'minWidth': '130px', 'width': '130px', 'maxWidth': '130px',
@@ -116,10 +126,7 @@ def drawText(index):
 def LoadData( filename ):
     return pd.read_csv(filename, delimiter=",", decimal=".")
 
-def RefreshPage() : 
-    for filename in sourceData:
-        dataFrame = LoadData(filename)
-
+def RefreshPage() :
     return dbc.Container([
             dbc.Card(
                 dbc.CardBody([
@@ -137,53 +144,66 @@ def RefreshPage() :
                     html.Br(),
                     dbc.Row([
                         dbc.Col([
-                            drawFigure(dataFrame)
+                            drawFigure(dataFrames[dataFrameIndex])
                         ], id='graph', width=12),
                     ], align='center'), 
                     html.Br(),
                     dbc.Row([
                         dbc.Col([
-                            dbc.Label("Num. rows", size="md", style={'display': 'inline-block', 'line-height':"0.1"}),
-                            dcc.Input(
-                                id="table-view-rows",
-                                value=tableViewConfig["visibleRows"],
-                                type="number",
-                                style={'width': '5vw', 'height': '3vh'}
+                            dcc.Dropdown(
+                                id='dataset-select',
+                                options=[{'label': sourceData[i], 'value': i} for i in range(len(sourceData))],
+                                value=dataFrameIndex
                             ),
-                        ], width=1),
+                        ], width=2),
                     ]),
                     dbc.Row([
-                        dbc.Col(
-                            [
-                                drawTable(dataFrame), 
+                        dbc.Col([
+                            dbc.Row([ drawTable(dataFrames[dataFrameIndex])], id='table-content'),
+                                dbc.Alert(id='tbl_out'),
                             ],id="table-view", width=12),
                     ], align='center'),      
                 ]), color = 'dark'
             ),
         ], fluid=True)
 
-
 @app.callback(
-    Output("data-table", "page_size"),
-    Input('table-view-rows', 'value'),
-)
-def UpdateTableLayout(numRows):
-    return numRows
-
-@callback(
-    Output('graph', 'children'),
+    Output("graph", "children"),
+    Output("table-content", "children"),
+    Input('dataset-select', 'value'),
     Input('data-table', 'data'),
     Input('data-table', 'columns'),
+    prevent_initial_call=True,
 )
-def UpdateDataframeFromTable(rows, columns):
-    dataFrame = pd.DataFrame(rows, columns=[c['name'] for c in columns])
-    return drawFigure(dataFrame)
+def UpdateTableSelectedDataset(datasetIndex, rows, columns):
+    changed_inputs = [
+        x["prop_id"]
+        for x in callback_context.triggered
+    ]
 
+    if "dataset-select.value" in changed_inputs:
+        dataFrameIndex = datasetIndex
+        df = dataFrames[dataFrameIndex]
+        return [
+            drawFigure(df),
+            drawTable(df)
+        ]
+
+    if "data-table.data" in changed_inputs or "data-table.columns" in changed_inputs:
+        dataFrames[datasetIndex] = pd.DataFrame(rows, columns=[c['name'] for c in columns])
+        df = dataFrames[datasetIndex]
+        return [
+            drawFigure(df),
+            no_update
+        ]
 
 #########################################################
 
 if __name__ == '__main__':
-    sourceData.append("samples.csv")
+    sourceData = [f for f in glob.glob("*.csv")]
+    
+    for filename in sourceData:
+        dataFrames.append( LoadData(filename) )
 
     app.layout = RefreshPage()
 
