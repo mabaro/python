@@ -1,6 +1,7 @@
 visualization/.ipynb_checkpoints
-visualization/venv
+visualization/.venv
 do_not_upload.sh
 visualization/myImagePDF.pdf
 visualization/account.json
 visualization/data/2023-binanceTransactionHistory.csv
+visualization/.venv/Lib/site-packages/decorator.py
