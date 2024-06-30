@@ -1,3 +1,4 @@
+from dash.exceptions import PreventUpdate
 from dash import Dash, dcc, html, callback, Input, Output
 from dash import callback_context, no_update
 from dash import dash_table
@@ -7,12 +8,16 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
 import glob
+import os
 
 app = Dash(external_stylesheets=[dbc.themes.SLATE], prevent_initial_callbacks="initial_duplicate")
 
 sourceData = []
 dataFrames = []
 dataFrameIndex = 0
+xAxis = "casa"
+dataColumns = ["noono"]
+texts = ["one", "two", "three", "four"]
 
 
 # table view
@@ -20,20 +25,74 @@ tableViewConfig = {
     'visibleRows' : 25
 }
 
+@app.callback(
+        Output("graph", "children", allow_duplicate=True),
+        Input("xaxis", "value"), 
+        Input("xaxis", "options"),
+        prevent_initial_call=True,
+       )          
+def updateXAxis(search_value, options):
+    global xAxis
+    
+    if not search_value:
+        raise PreventUpdate
+
+    print("updateXAxis search_value: ", search_value)
+    print("updateXAxis options: ", options)
+
+    for o in options:
+        if search_value == o["value"]:
+            selectedKey = options[search_value]["label"]
+            xAxis = selectedKey
+            texts[0] = selectedKey
+
+    return drawFigure(dataFrames[dataFrameIndex])
+
+@app.callback(
+        Output("graph", "children", allow_duplicate=True),
+        Input("columns", "value"),
+        Input("columns", "options"),
+        prevent_initial_call=True,
+    )
+def updateColumns(search_value, options):
+    global dataColumns
+    
+    if not search_value:
+        raise PreventUpdate
+
+    print("updateColumns search_value: ", search_value)
+    print("updateColumns options: ", options)
+
+    if not isinstance(search_value, list):
+        search_value = [search_value]    
+
+    dataKeys = dataFrames[dataFrameIndex].keys()
+    dataColumns = []
+    for key in search_value:
+        dataColumns.append(dataKeys[key])
+
+    return drawFigure(dataFrames[dataFrameIndex])
+
 def drawFigure(tableData):
-    return  html.Div([
+    global xAxis
+    global dataColumns
+
+    print("drawFigure X: ", xAxis)
+    print("drawFigure columns: ", dataColumns)
+
+    return html.Div([
         dbc.Card(
             dbc.CardBody([
                 dcc.Graph(
                     figure=px.line(
                         tableData, 
-                        x="seconds",
-                        y="temperature",
+                        x=xAxis,
+                        y=dataColumns,
                         # color="fps",
                         # text = "fps",
                         markers = True,
-                        labels = {'seconds':'time', 'gpu' : 'GPU freq.' },
-                        hover_data="gpu",
+                        # labels = {'seconds':'time', 'gpu' : 'GPU freq.' },
+                        # hover_data="gpu",
                     ).update_layout(
                         template='plotly_dark',
                         plot_bgcolor= 'rgba(0, 0, 0, 0)',
@@ -112,9 +171,9 @@ def drawTable(tableData):
             },
     )
 
-texts = ["one", "two", "three", "four"]
 # Text field
 def drawText(index):
+    global texts
     return html.Div([
         dbc.Card(
             dbc.CardBody([
@@ -127,6 +186,16 @@ def LoadData( filename ):
     return pd.read_csv(filename, delimiter=",", decimal=".")
 
 def RefreshPage() :
+    global xAxis
+    global dataColumns
+
+    DF = dataFrames[dataFrameIndex]
+    DF_KEYS = DF.keys() 
+    xAxis = DF_KEYS[0]
+    dataColumns = [DF_KEYS[1]]
+    print("RefreshPage X: ", xAxis)
+    print("RefreshPage columns: ", dataColumns)
+
     return dbc.Container([
             dbc.Card(
                 dbc.CardBody([
@@ -144,10 +213,26 @@ def RefreshPage() :
                     html.Br(),
                     dbc.Row([
                         dbc.Col([
-                            drawFigure(dataFrames[dataFrameIndex])
+                            drawFigure(DF)
                         ], id='graph', width=12),
                     ], align='center'), 
                     html.Br(),
+                    dbc.Row([
+                        dbc.Col([
+                            dcc.Input(
+                                id="dataset-path",
+                                type="text",
+                                placeholder="Enter datasets path",
+                            ),
+                        ], width=3),
+                        dbc.Col([
+                            dcc.Input(
+                                id="dataset-filter",
+                                type="text",
+                                placeholder="Enter datasets filter(; to separate allowed substrings ! to negate)",
+                            ),
+                        ], width=2),
+                    ]),
                     dbc.Row([
                         dbc.Col([
                             dcc.Dropdown(
@@ -155,11 +240,30 @@ def RefreshPage() :
                                 options=[{'label': sourceData[i], 'value': i} for i in range(len(sourceData))],
                                 value=dataFrameIndex
                             ),
-                        ], width=2),
+                        ], width=4),
                     ]),
                     dbc.Row([
                         dbc.Col([
-                            dbc.Row([ drawTable(dataFrames[dataFrameIndex])], id='table-content'),
+                            dcc.Dropdown(
+                                id="xaxis",
+                                placeholder="Select X axis",
+                                options=[{"label": DF_KEYS[x], "value":x} for x in range(len(DF_KEYS))],
+                                value=xAxis,
+                            ),
+                        ]),
+                        dbc.Col([
+                            dcc.Dropdown(
+                                id="columns",
+                                placeholder="Select columns",
+                                options=[{"label": DF_KEYS[x], "value":x} for x in range(len(DF_KEYS))],
+                                value=dataColumns,
+                                multi=True,
+                            ),
+                        ])
+                    ]),
+                    dbc.Row([
+                        dbc.Col([
+                            dbc.Row([ drawTable(DF)], id='table-content'),
                                 dbc.Alert(id='tbl_out'),
                             ],id="table-view", width=12),
                     ], align='center'),      
@@ -168,7 +272,27 @@ def RefreshPage() :
         ], fluid=True)
 
 @app.callback(
-    Output("graph", "children"),
+        Output("dataset-select", "options"), 
+        Input("dataset-path", "value"))
+def list_datasets(datasetsPath):
+    global dataFrames
+    
+    dataFrames = []
+
+    file_names = os.listdir(datasetsPath)
+    file_list = []
+
+    count = 0
+    for file in file_names:
+        if "csv" in file:
+            dataFrames.append( LoadData(filename) )
+            file_list.append({'label': sourceData[count], 'value': count} ),
+            count = count + 1
+
+    return file_list
+
+@app.callback(
+    Output("graph", "children", allow_duplicate=True),
     Output("table-content", "children"),
     Input('dataset-select', 'value'),
     Input('data-table', 'data'),
