@@ -16,7 +16,7 @@ baseDataPath = ""
 sourceData = []
 dataFrames = []
 dataFrameIndex = 0
-xAxis = "casa"
+xAxisKey = "casa"
 dataColumns = ["noono"]
 texts = ["one", "two", "three", "four"]
 
@@ -33,7 +33,7 @@ tableViewConfig = {
         prevent_initial_call=True,
        )          
 def updateXAxis(search_value, options):
-    global xAxis
+    global xAxisKey
 
     changed_inputs = [
         x["prop_id"]
@@ -45,25 +45,31 @@ def updateXAxis(search_value, options):
     if search_value is None:
         raise PreventUpdate
 
-    xAxis = None
+    xAxisKey = None
 
     for o in options:
         if search_value == o["value"]:
             selectedKey = options[search_value]["label"]
-            xAxis = selectedKey
-            texts[0] = selectedKey
+            xAxisKey = selectedKey
 
-    return drawFigure(dataFrames[dataFrameIndex])
+    DF=dataFrames[dataFrameIndex]["data"]
+    print(">>>UpdateXAxis: ", xAxisKey)
+    return drawFigure(DF),
 
 @app.callback(
         Output("graph", "children", allow_duplicate=True),
+        Output("columns", "options", allow_duplicate=True),
         Input("columns", "value"),
         Input("columns", "options"),
+        Input("xaxis", "value"), 
         prevent_initial_call=True,
     )
-def updateColumns(search_value, options):
+def updateColumns(columnsValues, columnsOptions, xAxisOptionIndex):
     global dataColumns
     
+    if len(dataFrames) == 0:
+        raise PreventUpdate
+
     changed_inputs = [
         x["prop_id"]
         for x in callback_context.triggered
@@ -71,30 +77,35 @@ def updateColumns(search_value, options):
     if "columns.options" in changed_inputs:
         raise PreventUpdate
 
-    if search_value is None:
+    if columnsValues is None:
         raise PreventUpdate
 
-    if not isinstance(search_value, list):
-        search_value = [search_value]    
+    if not isinstance(columnsValues, list):
+        columnsValues = [columnsValues]    
 
-    dataKeys = dataFrames[dataFrameIndex].keys()
-    dataColumns = [dataKeys[key] for key in (search_value or [])]
+    DF = dataFrames[dataFrameIndex]["data"]
+    DF_KEYS = DF.keys()
+    columnsOptions = [{"label": DF_KEYS[x], "value":x} for x in range(len(DF_KEYS)) if DF_KEYS[x] != xAxisKey]
+    if not columnsValues or columnsValues == []:
+        dataColumns = [ DF_KEYS[x] for x in range(len(DF_KEYS)) if DF_KEYS[x] != xAxisKey ]
+    else:
+        dataColumns = [ option["label"] for option in columnsOptions if option["label"] != xAxisKey ]
 
-    if len(dataColumns) == 0:
-        dataColumns = [k for k in dataKeys if k != xAxis ]
-
-    return drawFigure(dataFrames[dataFrameIndex])
+    return [
+        drawFigure(DF),
+        columnsOptions,
+    ]
 
 def drawFigure(tableData):
-    global xAxis
+    global xAxisKey
     global dataColumns
 
     if tableData is None:
       fig = go.Figure()
-    else:    
+    else:
         fig=px.line(
             tableData, 
-            x=xAxis,
+            x=xAxisKey,
             y=dataColumns,
             # color="fps",
             # text = "fps",
@@ -116,18 +127,36 @@ def drawFigure(tableData):
             # hovertemplate = "Fps:%{fpsColumn}: <br>Temperature: %{y}",
         )
 
-    return html.Div([
-        dbc.Card(
-            dbc.CardBody([
-                dcc.Graph(
-                    figure = fig,
-                    config={
-                        'displayModeBar': False
-                    }
-                )
-            ])
-        ),  
-    ])
+    figCount = 1
+    if figCount > 1:
+        return html.Div([
+            dbc.Card(
+                dbc.CardBody([
+                    dcc.Graph(
+                        figure = fig,
+                        config={'displayModeBar': False},
+                    ),
+                    dcc.Graph(
+                        figure = fig,
+                        config={'displayModeBar': False},
+                    ),
+                ])
+            ),  
+        ])
+    else:
+        return html.Div([
+            dbc.Card(
+                dbc.CardBody([
+                    dcc.Graph(
+                        figure = fig,
+                        config={
+                            'displayModeBar': False
+                        }
+                    ),
+                ])
+            ),  
+        ])
+
 
 def drawTable(tableData):
     DrawingTable=True
@@ -207,18 +236,18 @@ def LoadData( filename ):
     return pd.read_csv(filename, delimiter=",", decimal=".")
 
 def RefreshPage() :
-    global xAxis
+    global xAxisKey
     global dataColumns
 
     DF = None
     DF_KEYS = []
     dataColumns = None
-    xAxis = ""
+    xAxisKey = ""
 
     if len(dataFrames) > 0 :
-        DF = dataFrames[dataFrameIndex]
+        DF = dataFrames[dataFrameIndex]["data"]
         DF_KEYS = DF.keys()
-        xAxis = DF_KEYS[0]
+        xAxisKey = DF_KEYS[0]
         dataColumns = [DF_KEYS[1]]
 
     return dbc.Container([
@@ -226,13 +255,25 @@ def RefreshPage() :
                 dbc.CardBody([
                     dbc.Row([
                         dbc.Col([
-                            drawText(0)
+                            dbc.Card(
+                                dbc.CardBody([
+                                    html.Label("Label1",id="label1"),
+                                ])
+                            ),
                         ], width=3),
                         dbc.Col([
-                            drawText(1)
+                            dbc.Card(
+                                dbc.CardBody([
+                                    html.Label("Label2",id="label2"),
+                                ])
+                            ),
                         ], width=3),
                         dbc.Col([
-                            drawText(2)
+                            dbc.Card(
+                                dbc.CardBody([
+                                    html.Label("Label3",id="label3"),
+                                ])
+                            ),
                         ], width=6),
                     ], align='center'), 
                     html.Br(),
@@ -243,30 +284,32 @@ def RefreshPage() :
                     ], align='center'), 
                     html.Br(),
                     dbc.Row([
-                        dbc.Col([
+                        html.Div([
+                            html.Label("Search path"),
+                            html.Br(),
                             dcc.Input(
                                 id="dataset-path",
                                 type="text",
                                 placeholder="Enter datasets path",
                                 debounce = True,
-                            ),
-                        ], width=3),
-                        dbc.Col([
+                                size='60',
+                            ), 
                             dcc.Input(
                                 id="dataset-filename-filter",
                                 type="text",
-                                placeholder="Enter filename filter(; to separate allowed substrings ! to negate)",
+                                value="csv",
+                                placeholder="Filename filter(separate;!negate)",
                                 debounce = True,
+                                size='30',
                             ),
-                        ], width=2),
-                        dbc.Col([
                             dcc.Input(
                                 id="dataset-dir-filter",
                                 type="text",
-                                placeholder="Enter folder filter(; to separate allowed substrings ! to negate)",
+                                placeholder="Folder filter(separate;!negate)",
                                 debounce = True,
+                                size='30',
                             ),
-                        ], width=2),
+                        ]),
                     ]),
                     dbc.Row([
                         dbc.Col([
@@ -283,7 +326,7 @@ def RefreshPage() :
                                 id="xaxis",
                                 placeholder="Select X axis",
                                 options=[{"label": DF_KEYS[x], "value":x} for x in range(len(DF_KEYS))],
-                                value=xAxis,
+                                value=xAxisKey,
                             ),
                         ]),
                         dbc.Col([
@@ -314,7 +357,7 @@ def RefreshPage() :
         )
 def update_dataset_list(datasetsPath, filenameFilterStr, folderFilterStr):
     global dataFrames
-    
+
     if not datasetsPath:
         raise PreventUpdate
 
@@ -329,15 +372,14 @@ def update_dataset_list(datasetsPath, filenameFilterStr, folderFilterStr):
 
     filtered_files = []
 
-    excludeDirs = [".venv"]
     excludesDir = [ f[1:] for f in folderFilter if len(f)>0 and f[0] == "!" ]
+    excludesDir = excludesDir + [".venv", ".git"]
     includesDir = [ f for f in folderFilter if len(f)>0 and not f[0] == "!" ]
     excludes = [ f[1:] for f in filenameFilter if len(f)>0 and f[0] == "!" ]
     includes = [ f for f in filenameFilter if len(f)>0 and not f[0] == "!" ]
 
     for root, dirs, files in os.walk(datasetsPath):
         # exclude dirs
-        dirs[:] = [os.path.join(root, d) for d in dirs]
         dirs[:] = [d for d in dirs if not any(word in d for word in excludesDir)]
         if len(includesDir) > 0:
             dirs[:] = [d for d in dirs if any(word in d for word in includesDir)]
@@ -345,21 +387,25 @@ def update_dataset_list(datasetsPath, filenameFilterStr, folderFilterStr):
                 continue
 
         # exclude/include files
-        files = [os.path.join(root, f) for f in files]
+        files = [os.path.normpath(os.path.join(root, f)) for f in files]
         files = [f for f in files if not any(word in f for word in excludes)]
-        if len(excludes) > 0:
-            files = [f for f in files if not any(word in f for word in excludes)]
         if len(includes) > 0:
             files = [f for f in files if any(word in f for word in includes)]
 
         for fname in files:
             filtered_files.append(fname) 
-            dataFrames.append( LoadData(fname) )
-
-
-    baseDataPath = os.path.commonpath(filtered_files)
-    baseDataPath = os.path.dirname(baseDataPath)
-    filtered_files = [f.removeprefix(baseDataPath) for f in filtered_files]
+            try:
+                df = LoadData(fname)  
+                dataFrames.append( { "path": fname, "data" : df} )
+            except:
+                print("ERROR: file not found: ", fname)
+        
+    if len(filtered_files) > 1:
+        baseDataPath = os.path.commonpath(filtered_files)
+        baseDataPath = os.path.dirname(baseDataPath)
+        filtered_files = [f[len(baseDataPath)+1:] for f in filtered_files]
+        for df in dataFrames:
+            df["name"]=df["path"][len(baseDataPath)+1:]
 
     filtered_files = [{ "label": filtered_files[i], "value": i } for i in range(len(filtered_files))]
     return filtered_files
@@ -368,15 +414,23 @@ def update_dataset_list(datasetsPath, filenameFilterStr, folderFilterStr):
     Output("graph", "children", allow_duplicate=True),
     Output("table-content", "children"),
     Output("xaxis", "options"),
-    Output("columns", "options"),
+    Output("xaxis", "value"),
+    Output("columns", "options", allow_duplicate=True),
+    Output("columns", "value"),
     Input('dataset-select', 'value'),
     Input('data-table', 'data'),
     Input('data-table', 'columns'),
     prevent_initial_call=True,
 )
 def UpdateTableSelectedDataset(datasetIndex, rows, columns):
-    global xAxis
+    global xAxisKey
     global dataColumns
+
+    if datasetIndex is None:
+        raise PreventUpdate
+
+    dataFrameIndex = datasetIndex
+    DF = dataFrames[dataFrameIndex]["data"]
 
     changed_inputs = [
         x["prop_id"]
@@ -384,42 +438,39 @@ def UpdateTableSelectedDataset(datasetIndex, rows, columns):
     ]
 
     if "dataset-select.value" in changed_inputs:
-        if datasetIndex is None:
-            raise PreventUpdate
-
-        dataFrameIndex = datasetIndex
-        df = dataFrames[dataFrameIndex]
-        DF_KEYS = df.keys()
-        xAxis = DF_KEYS[0] if len(DF_KEYS) > 0 else ""
+        DF_KEYS = DF.keys()
+        xAxisOptionsIndex = 0
+        xAxisKey = DF_KEYS[xAxisOptionsIndex] if len(DF_KEYS) > 0 else ""
         xAxisOptions=[{"label": DF_KEYS[x], "value":x} for x in range(len(DF_KEYS))]
-        dataColumns = [ key for key in DF_KEYS if key != xAxis]
-        columnsOptions=[{"label": DF_KEYS[x], "value":x} for x in range(len(DF_KEYS)) if x != xAxis]
-
+        dataColumns = [ key for key in DF_KEYS if key != xAxisKey]
+        columnsOptions=[{"label": DF_KEYS[x], "value":x} for x in range(len(DF_KEYS)) if x != xAxisOptionsIndex]
+        print("Updated dataset-select. XKey: ", xAxisKey)
         return [
-            drawFigure(df),
-            drawTable(df),
+            drawFigure(DF),
+            drawTable(DF),
             xAxisOptions,
+            xAxisOptionsIndex,
             columnsOptions,
+            ["fps"],
         ]
 
     if "data-table.data" in changed_inputs or "data-table.columns" in changed_inputs:
-        dataFrames[datasetIndex] = pd.DataFrame(rows, columns=[c['name'] for c in columns])
-        df = dataFrames[datasetIndex]
+        DF = pd.DataFrame(rows, columns=[c['name'] for c in columns])
+        print("Updated data-table. XKey: ", xAxisKey)
+        print(DF.head())
         return [
-            drawFigure(df),
+            drawFigure(DF),
             no_update,# drawTable(df),
             no_update,#xAxisOptions,
+            no_update,#xaxisValue
             no_update,#columnsOptions,
+            no_update,#columnsValue
         ]
 
 #########################################################
 
 if __name__ == '__main__':
-    sourceData = [f for f in glob.glob("*.csv")]
-    
-    for filename in sourceData:
-        dataFrames.append( LoadData(filename) )
-
+    update_dataset_list("../data", "csv", "")
     app.layout = RefreshPage()
 
     # Run app and display result inline in the notebook
