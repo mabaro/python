@@ -1,4 +1,4 @@
 #!/bin/bash
 
-# python3 -m venv visenv
-source visenv/bin/activate
+# python3 -m venv venv
+source venv/bin/activate

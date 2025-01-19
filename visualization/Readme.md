@@ -14,3 +14,12 @@ pip freeze > requirements.txt
 
 # enter local jupyter lab
 jupyter lab
+
+# create a single file exe
+nuitka myprogram.py
+
+# plotly plot boundaries (y min/max)
+https://plotly.com/python/line-charts/
+
+# plotly error bars
+https://plotly.com/python/error-bars/

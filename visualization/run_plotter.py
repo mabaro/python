@@ -1,5 +1,5 @@
 from dash.exceptions import PreventUpdate
-from dash import Dash, dcc, html, callback, Input, Output
+from dash import Dash, dcc, html, callback, Input, Output, State
 from dash import callback_context, no_update
 from dash import dash_table
 import dash_bootstrap_components as dbc
@@ -7,6 +7,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
+import datetime
+import base64
+import io
 import glob
 import os
 
@@ -251,6 +254,27 @@ def RefreshPage() :
         dataColumns = [DF_KEYS[1]]
 
     return dbc.Container([
+            html.Div([
+                dcc.Upload(
+                    id='upload-data',
+                    children=html.Div([
+                        'Drag and Drop or ',
+                        html.A('Select Files')
+                    ]),
+                    style={
+                        'width': '100%',
+                        'height': '60px',
+                        'lineHeight': '60px',
+                        'borderWidth': '1px',
+                        'borderStyle': 'dashed',
+                        'borderRadius': '5px',
+                        'textAlign': 'center',
+                        'margin': '10px'
+                    },
+                    multiple=True  # Allow multiple files to be uploaded
+                ),
+                html.Div(id='output-data-upload'),
+            ]),
             dbc.Card(
                 dbc.CardBody([
                     dbc.Row([
@@ -349,8 +373,51 @@ def RefreshPage() :
             ),
         ], fluid=True)
 
+def parse_upload_content(contents, filename, date):
+    global dataFrames
+
+    content_type, content_string = contents.split(',')
+    decoded = base64.b64decode(content_string)
+    
+    try:
+        if 'csv' in filename:
+            df = pd.read_csv(io.StringIO(decoded.decode('utf-8')), delimiter=",", decimal=".")
+        elif 'xls' in filename:
+            df = pd.read_excel(io.BytesIO(decoded))
+    except Exception as e:
+        print(e)
+        return html.Div(['There was an error processing this file.'])
+
+    if isinstance(df , pd.DataFrame):
+        dataFrames.append( { "path": filename, "data" : df} )
+    
+    return html.Div([
+        html.H5(filename + " "+ str(datetime.datetime.fromtimestamp(date)))
+    ])
+
+@app.callback(Output('output-data-upload', 'children'),
+            #   Output("dataset-path", "value"),
+                Output("dataset-select", "options", allow_duplicate=True), 
+                Input('upload-data', 'contents'),
+                State('upload-data', 'filename'),
+                State('upload-data', 'last_modified')
+              )
+def update_upload_state(list_of_contents, list_of_names, list_of_dates):
+    global dataFrames
+    
+    dataFrames = []
+    if list_of_contents is not None:
+        print("New files dropped: ", list_of_names)
+        children = [
+            parse_upload_content(c, n, d) for c, n, d in zip(list_of_contents, list_of_names, list_of_dates)]
+        return [children, [ { "label": list_of_names[i], "value": i } for i in range(len(list_of_names)) ] ]
+
+
+    raise PreventUpdate
+
+
 @app.callback(
-        Output("dataset-select", "options"), 
+        Output("dataset-select", "options", allow_duplicate=True), 
         Input("dataset-path", "value"),
         Input("dataset-filename-filter", "value"),
         Input("dataset-dir-filter", "value"),
@@ -360,6 +427,8 @@ def update_dataset_list(datasetsPath, filenameFilterStr, folderFilterStr):
 
     if not datasetsPath:
         raise PreventUpdate
+    print("----- updating datasets --------")
+    print(datasetsPath)
 
     filenameFilter = []
     if isinstance( filenameFilterStr, str):
